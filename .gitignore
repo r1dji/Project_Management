@@ -1,2 +1,10 @@
-.venv
-.idea
+.venv/
+.idea/
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+db_script.sql
+notes.txt
+uploaded_files/
+example_docs/
