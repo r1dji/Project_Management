@@ -1,14 +1,15 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from models import Base
+from Database.models import Base
+from config import settings
 
 # connection to db parameters
-user = 'postgres'
-password = 'postgres'
-host = 'localhost'
-port = 5432
-db_name = 'project_management'
+user = settings.DB_USER
+password = settings.DB_PASSWORD
+host = settings.DB_HOST
+port = settings.DB_PORT
+db_name = settings.DB_NAME
 
 DATABASE_URL = f'postgresql+psycopg://{user}:{password}@{host}:{port}/{db_name}'
 

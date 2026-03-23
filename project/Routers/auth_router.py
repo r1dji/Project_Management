@@ -1,33 +1,27 @@
-from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import JSONResponse
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-
-from sqlalchemy.orm import Session
-
-from http import HTTPStatus
-
-from pydantic import BaseModel
-
-from models import User
-from Controllers.users_controller import get_user_by_username, insert_user
-
-from db import get_db
-
-from pwdlib import PasswordHash
-
 from datetime import datetime, timedelta
+from http import HTTPStatus
 from zoneinfo import ZoneInfo
 
 import jwt
-from secrets import token_hex
+from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import JSONResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from pwdlib import PasswordHash
+from sqlalchemy.orm import Session
+
+from Database.db import get_db
+from Database.models import User
+from Schemas.auth_schemas import SignUpRequest, LoginRequest
+from Services.users_service import get_user_by_username, insert_user
+from config import settings
 
 router = APIRouter(tags=['Auth'])
 
 password_hasher = PasswordHash.recommended()
 
-TOKEN_DURATION = 60
-SECRET_KEY = token_hex(32)
-ALGORITHM = 'HS256'
+TOKEN_DURATION = settings.JWT_TOKEN_DURATION_MINUTES
+SECRET_KEY = settings.JWT_SECRET_KEY
+ALGORITHM = settings.JWT_ALGORITHM
 
 security = HTTPBearer()
 
@@ -68,12 +62,6 @@ def get_current_user(
     return user
 
 
-class SignUpRequest(BaseModel):
-    username: str
-    password: str
-    repeated_password: str
-
-
 @router.post('/auth')
 def sign_up(data: SignUpRequest, db: Session = Depends(get_db)):
     if data.password != data.repeated_password:
@@ -92,11 +80,6 @@ def sign_up(data: SignUpRequest, db: Session = Depends(get_db)):
         )
     else:
         raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create user')
-
-
-class LoginRequest(BaseModel):
-    username: str
-    password: str
 
 
 @router.post('/login')

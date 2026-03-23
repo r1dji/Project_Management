@@ -1,27 +1,23 @@
+import os
 import shutil
+from http import HTTPStatus
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
 from fastapi.responses import JSONResponse, FileResponse
-
-from http import HTTPStatus
-
 from sqlalchemy.orm import Session
 
-from db import get_db
-from models import User
-from auth import get_current_user
-
-from Controllers.documents_controller import (
+from Database.db import get_db
+from Database.models import User
+from Routers.auth_router import get_current_user
+from Services.documents_service import (
     get_document_by_id,
     delete_document,
     update_document_name
 )
-from Controllers.projects_controller import (
+from Services.projects_service import (
     get_proj_by_id,
     get_is_participant
 )
-
-import os
 
 router = APIRouter(tags=['Documents'])
 
@@ -40,8 +36,8 @@ def download_document(
         raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='You are not a participant of this project')
 
     if os.path.isfile(document.name):
-        file_path_split = document.name.split('\\')
-        return FileResponse(document.name, filename=file_path_split[-1])
+        display_name = os.path.basename(document.name.replace("\\", "/"))
+        return FileResponse(document.name, filename=display_name)
     else:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document doesnt exist')
 

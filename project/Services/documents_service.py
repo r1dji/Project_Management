@@ -1,6 +1,6 @@
 from sqlalchemy import update
 
-from models import Documents
+from Database.models import Documents
 
 
 def get_documents_for_project_by_name(db, proj_id, doc_name):

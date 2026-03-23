@@ -1,6 +1,6 @@
 from sqlalchemy import update
 
-from models import Project, ProjectParticipant
+from Database.models import Project, ProjectParticipant
 
 
 def create_project(db, name, details, current_user):
