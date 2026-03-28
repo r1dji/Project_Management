@@ -3,7 +3,6 @@ name: Linting Python
 on:
   pull_request:
     branches: [s3_branch]
-  workflow_dispatch:
 
 jobs:
   lint:
