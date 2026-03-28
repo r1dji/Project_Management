@@ -24,6 +24,9 @@ services:
       - ./.env
     environment:
       DB_HOST: db
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+      AWS_DEFAULT_REGION: ${AWS_DEFAULT_REGION}
     depends_on:
       db:
         condition: service_healthy
@@ -35,3 +38,5 @@ services:
 volumes:
   db_data:
   app_data:
+
+# docker-compose run app python cloud_utils/cloud_setup_script.py when needed

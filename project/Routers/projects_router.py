@@ -46,7 +46,7 @@ def get_projects(
     participated_projects = get_all_participated_projects_for_user_id(db, current_user.user_id)
     for proj in participated_projects:
         documents = get_all_documents_for_project(db, proj.project_id)
-        documents = [doc.name for doc in documents]
+        documents = [(((doc.name).replace("\\", '/')).split('/'))[-1] for doc in documents]
         result.append(ProjectRead(
             project_id=proj.project_id,
             name=proj.name,

@@ -1,6 +1,7 @@
 import os
 import shutil
 from http import HTTPStatus
+import json
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from fastapi.responses import JSONResponse
@@ -14,7 +15,9 @@ from Schemas.projects_schemas import ProjectCreate, ProjectDetailsRead
 from Services.documents_service import (
     get_documents_for_project_by_name,
     create_document_for_project,
-    get_all_documents_for_project
+    get_all_documents_for_project,
+    update_document_name,
+    delete_document
 )
 from Services.projects_service import (
     get_proj_by_id,
@@ -24,6 +27,15 @@ from Services.projects_service import (
     create_participation
 )
 
+from config import settings
+
+import boto3
+
+s3_client = boto3.client('s3')
+sqs_client = boto3.client('sqs')
+
+AWS_BUCKET_NAME = settings.AWS_BUCKET_NAME
+SQS_QUEUE_URL = settings.AWS_SQS_QUEUE_URL
 router = APIRouter(tags=['Project'])
 
 
@@ -70,8 +82,39 @@ def change_project_details(
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
 
     if proj.owner_id == current_user.user_id or get_is_participant(db, project_id, current_user.user_id):
+        old_proj_file_name = f'id_{proj.project_id}_name_{proj.name}'
+        docs_folder = os.path.join(os.getcwd(), 'uploaded_files')
+        old_proj_upload_files = os.path.join(docs_folder, old_proj_file_name)
         updated_proj = update_project_details(db, proj.project_id, data.name, data.details)
         if updated_proj is not None:
+            new_proj_file_name = f'id_{updated_proj.project_id}_name_{updated_proj.name}'
+            if os.path.exists(old_proj_upload_files):
+                new_file_upload_name = os.path.join(docs_folder, new_proj_file_name)
+                os.rename(old_proj_upload_files, new_file_upload_name)
+                documents = get_all_documents_for_project(db, updated_proj.project_id)
+                for doc in documents:
+                    doc_name = ((doc.name.replace("\\", '/')).split('/'))[-1]
+                    new_doc_name = os.path.join(new_file_upload_name, doc_name)
+                    if update_document_name(db, doc.document_id, new_doc_name):
+
+                        # S3 update file names
+                        old_folder_prefix = f'{old_proj_file_name}/{doc_name}'
+                        response = s3_client.list_objects_v2(Bucket=AWS_BUCKET_NAME, Prefix=old_folder_prefix)
+                        new_folder_prefix = f'{new_proj_file_name}/{doc_name}'
+                        if 'Contents' in response:
+                            for obj in response['Contents']:
+                                old_key = obj['Key']
+                                new_key = old_key.replace(old_folder_prefix, new_folder_prefix, 1)
+
+                                # Copy file to new name
+                                s3_client.copy_object(
+                                    Bucket=AWS_BUCKET_NAME,
+                                    CopySource={'Bucket': AWS_BUCKET_NAME, 'Key': old_key},
+                                    Key=new_key
+                                )
+                                # Delete old file
+                                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=old_key)
+
             return JSONResponse(
                 content=ProjectDetailsRead(name=updated_proj.name, details=updated_proj.details).model_dump(),
                 status_code=HTTPStatus.OK
@@ -97,6 +140,10 @@ def delete_project_and_docs(
         if delete_project(db, project_id):
             for doc in documents:
                 os.remove(doc.name)
+                s3_file_name_list = ((doc.name.replace("\\", '/')).split('/'))[-2:]
+                s3_file_name = '/'.join(s3_file_name_list)
+                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_file_name)
+
             return JSONResponse(
                 content={'message': 'Project deleted successfully'},
                 status_code=HTTPStatus.OK
@@ -121,34 +168,78 @@ def add_documents_to_project(
     if not get_is_participant(db, project_id, current_user.user_id):
         raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
 
-    files_not_uploaded = []
-    files_uploaded = []
-
     docs_folder = os.path.join(os.getcwd(), 'uploaded_files')
-    proj_upload_files = os.path.join(docs_folder, f'id_{project_id}_name_{proj.name}')
+    folder_proj_name = f'id_{project_id}_name_{proj.name}'
+    proj_upload_files = os.path.join(docs_folder, folder_proj_name)
 
     if not os.path.exists(proj_upload_files):
         os.makedirs(proj_upload_files)
 
     file_path = os.path.join(proj_upload_files, file.filename)
+    file_path_s3 = f'{folder_proj_name}/{file.filename}'
 
     if not get_documents_for_project_by_name(db, project_id, file_path):
         if create_document_for_project(db, project_id, file_path):
             with open(file_path, 'wb') as local_file:
                 shutil.copyfileobj(file.file, local_file)
-            files_uploaded.append(file.filename)
-        else:
-            files_not_uploaded.append(file.filename)
-    else:
-        files_not_uploaded.append(file.filename)
+            try:
+                s3_client.upload_file(file_path, AWS_BUCKET_NAME, file_path_s3)
 
-    return JSONResponse(
-        content={
-            'files_uploaded': files_uploaded,
-            'files_not_uploaded': files_not_uploaded
-        },
-        status_code=HTTPStatus.OK
-    )
+                response = sqs_client.receive_message(
+                    QueueUrl=SQS_QUEUE_URL,
+                    MaxNumberOfMessages=1,
+                    WaitTimeSeconds=20
+                )
+                print(response)
+
+                if 'Messages' in response:
+                    message = response['Messages'][0]
+                    lambda_result = json.loads(message['Body'])
+
+                    sqs_client.delete_message(
+                        QueueUrl=SQS_QUEUE_URL,
+                        ReceiptHandle=message['ReceiptHandle']
+                    )
+
+                    if lambda_result['status'] == 'success':
+                        return JSONResponse(
+                            content={'message': 'File uploaded successfully'},
+                            status_code=HTTPStatus.OK
+                        )
+                    elif lambda_result['status'] == 'error':
+                        os.remove(file_path)
+                        s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=file_path_s3)
+                        document = get_documents_for_project_by_name(db, project_id, file_path)
+                        delete_document(db, document.document_id)
+                        if lambda_result['error'] == 'Exceeded project size limit':
+                            return JSONResponse(
+                                content={'message': 'Project size limit exceeded'},
+                                status_code=HTTPStatus.CONTENT_TOO_LARGE
+                            )
+                        else:
+                            return JSONResponse(
+                                content={'message': 'Failed to upload file from 1'},
+                                status_code=HTTPStatus.INTERNAL_SERVER_ERROR
+                            )
+                else:
+                    raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                                        detail='Failed to upload file from 2')
+
+            except HTTPException:
+                raise
+            except Exception as e:
+                os.remove(file_path)
+                document = get_documents_for_project_by_name(db, project_id, file_path)
+                delete_document(db, document.document_id)
+                raise HTTPException(
+                    status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                    detail=f'Upload failed: {str(e)}'
+                )
+        else:
+            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create document')
+
+    else:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File already exists in the project')
 
 
 @router.get('/project/{project_id}/documents')
@@ -169,7 +260,7 @@ def get_project_documents(
     for doc in documents:
         result.append(DocumentInfo(
             id=doc.document_id,
-            name=doc.name
+            name=((doc.name.replace("\\", '/')).split('/'))[-1]
         ).model_dump())
 
     return JSONResponse(
