@@ -1,4 +1,4 @@
-name: Linting Python
+name: Lint & Test
 
 on:
   pull_request:
