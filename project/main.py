@@ -4,10 +4,4 @@ if __name__ == '__main__':
     uvicorn.run('server:app', reload=True, host='0.0.0.0', port=8000)
     # promena 1
     # promena 2
-    # promena new_temp_branch
-    # promena aa
-    # promena aa
-    # promena aa
-    # promena radi
-    # promena jos jedna radi
-    # promena l13
+    # promena obrisane promene
