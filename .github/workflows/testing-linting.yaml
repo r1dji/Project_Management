@@ -1,0 +1,14 @@
+name: Linting Python
+
+on:
+  pull_request:
+    branches: [s3_branch]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+      - run: pip install ruff
+      - run: ruff check --fix .
