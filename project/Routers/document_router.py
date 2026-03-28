@@ -14,7 +14,6 @@ from Services.documents_service import (
     get_document_by_id,
     delete_document,
     update_document_name,
-    get_documents_for_project_by_name,
     get_all_documents_for_project
 )
 from Services.projects_service import (
@@ -23,7 +22,6 @@ from Services.projects_service import (
 )
 import boto3
 
-import io
 
 from config import settings
 

@@ -1,6 +1,6 @@
-import boto3
 import os
 import sys
+import boto3
 import time
 import json
 from botocore.config import Config
