@@ -223,7 +223,8 @@ def add_s3_trigger(lambda_arn, bucket_name, function_name):
         # Get existing notification configuration
         try:
             existing_config = s3_client.get_bucket_notification_configuration(Bucket=bucket_name)
-        except:
+        except Exception as e:
+            print(f"{str(e)}")
             existing_config = {}
 
         # Extract existing Lambda configs

@@ -282,7 +282,7 @@ def give_access_to_project(
 
     try:
         user = int(user)
-    except:
+    except ValueError:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='User id must be a number')
 
     if proj.owner_id == current_user.user_id:
