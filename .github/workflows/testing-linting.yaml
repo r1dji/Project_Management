@@ -19,7 +19,25 @@ jobs:
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
-      - run: pip install pytest
+        with:
+          python-version: '3.14'
       - run: pip install -r project/requirements.txt
-      - run: pytest
+      - name: Run tests
+        env:
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_PORT: ${{ secrets.DB_PORT }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          JWT_SECRET_KEY: ${{ secrets.JWT_SECRET_KEY }}
+          JWT_ALGORITHM: ${{ secrets.JWT_ALGORITHM }}
+          JWT_TOKEN_DURATION_MINUTES: ${{ secrets.JWT_TOKEN_DURATION_MINUTES }}
+          AWS_BUCKET_NAME: ${{ secrets.AWS_BUCKET_NAME }}
+          ROLE_NAME: ${{ secrets.ROLE_NAME }}
+          AWS_SQS_QUEUE_NAME: ${{ secrets.AWS_SQS_QUEUE_NAME }}
+          AWS_SQS_QUEUE_URL: ${{ secrets.AWS_SQS_QUEUE_URL }}
+        run: |
+          cd project
+          pytest Tests/
+          
 
