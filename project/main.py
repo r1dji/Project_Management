@@ -1,3 +1,4 @@
+a = 5
 import uvicorn
 
 if __name__ == '__main__':
