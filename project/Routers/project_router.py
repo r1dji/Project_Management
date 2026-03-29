@@ -31,8 +31,8 @@ from config import settings
 
 import boto3
 
-s3_client = boto3.client('s3')
-sqs_client = boto3.client('sqs')
+s3_client = boto3.client('s3', region_name=os.getenv('AWS_REGION'))
+sqs_client = boto3.client('sqs', region_name=os.getenv('AWS_REGION'))
 
 AWS_BUCKET_NAME = settings.AWS_BUCKET_NAME
 SQS_QUEUE_URL = settings.AWS_SQS_QUEUE_URL
