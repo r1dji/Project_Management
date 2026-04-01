@@ -4,14 +4,13 @@ from http import HTTPStatus
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from Database.db import get_db
 from Database.models import User
 from Routers.auth_router import get_current_user
 from Schemas.documents_schemas import DocumentInfo
-from Schemas.projects_schemas import ProjectCreate, ProjectDetailsRead
+from Schemas.projects_schemas import ProjectCreate, ProjectDetailsResponse, BaseStrResponse
 from Services.documents_service import (
     get_documents_for_project_by_name,
     create_document_for_project,
@@ -27,6 +26,8 @@ from Services.projects_service import (
     create_participation
 )
 
+from typing import List
+
 from config import settings
 
 import boto3
@@ -36,44 +37,35 @@ sqs_client = boto3.client('sqs', region_name=os.getenv('AWS_REGION'))
 
 AWS_BUCKET_NAME = settings.AWS_BUCKET_NAME
 SQS_QUEUE_URL = settings.AWS_SQS_QUEUE_URL
-router = APIRouter(tags=['Project'])
+router = APIRouter(tags=['Project'], prefix='/project')
 
 
-@router.get('/project/{project_id}/info')
+@router.get('/{project_id}/info', status_code=HTTPStatus.OK)
 def get_project_details(
         project_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user),
-):
+) -> ProjectDetailsResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
 
     if proj.owner_id == current_user.user_id:
-        return JSONResponse(
-            content=ProjectDetailsRead(name=proj.name, details=proj.details).model_dump(),
-            status_code=HTTPStatus.OK
-        )
+        return ProjectDetailsResponse(name=proj.name, details=proj.details)
 
     if get_is_participant(db, project_id, current_user.user_id):
-        return JSONResponse(
-            content={
-                'project_name': proj.name,
-                'details': proj.details
-            },
-            status_code=HTTPStatus.OK
-        )
+        return ProjectDetailsResponse(name=proj.name, details=proj.details)
 
     raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
 
 
-@router.put('/project/{project_id}/info')
+@router.put('/{project_id}/info', status_code=HTTPStatus.OK)
 def change_project_details(
         project_id: int,
         data: ProjectCreate,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> ProjectDetailsResponse:
     if data.name is None or data.details is None:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Name and details are required')
 
@@ -115,22 +107,19 @@ def change_project_details(
                                 # Delete old file
                                 s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=old_key)
 
-            return JSONResponse(
-                content=ProjectDetailsRead(name=updated_proj.name, details=updated_proj.details).model_dump(),
-                status_code=HTTPStatus.OK
-            )
+            return ProjectDetailsResponse(name=updated_proj.name, details=updated_proj.details)
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to update project')
 
     raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
 
 
-@router.delete('/project/{project_id}')
+@router.delete('/{project_id}', status_code=HTTPStatus.OK)
 def delete_project_and_docs(
         project_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> BaseStrResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
@@ -144,29 +133,29 @@ def delete_project_and_docs(
                 s3_file_name = '/'.join(s3_file_name_list)
                 s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_file_name)
 
-            return JSONResponse(
-                content={'message': 'Project deleted successfully'},
-                status_code=HTTPStatus.OK
-            )
+            return BaseStrResponse(message='Project deleted successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to delete project')
     else:
         raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Only the owner can delete the project')
 
 
-@router.post('/project/{project_id}/documents')
+@router.post('/{project_id}/documents', status_code=HTTPStatus.CREATED)
 def add_documents_to_project(
         project_id: int,
         file: UploadFile = File(...),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> BaseStrResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
 
     if not get_is_participant(db, project_id, current_user.user_id):
         raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
+
+    if file.filename.count('+') > 0:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File name cannot contain +')
 
     docs_folder = os.path.join(os.getcwd(), 'uploaded_files')
     folder_proj_name = f'id_{project_id}_name_{proj.name}'
@@ -190,7 +179,6 @@ def add_documents_to_project(
                     MaxNumberOfMessages=1,
                     WaitTimeSeconds=20
                 )
-                print(response)
 
                 if 'Messages' in response:
                     message = response['Messages'][0]
@@ -202,28 +190,24 @@ def add_documents_to_project(
                     )
 
                     if lambda_result['status'] == 'success':
-                        return JSONResponse(
-                            content={'message': 'File uploaded successfully'},
-                            status_code=HTTPStatus.OK
-                        )
+                        return BaseStrResponse(message='File uploaded successfully')
                     elif lambda_result['status'] == 'error':
                         os.remove(file_path)
                         s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=file_path_s3)
                         document = get_documents_for_project_by_name(db, project_id, file_path)
                         delete_document(db, document.document_id)
                         if lambda_result['error'] == 'Exceeded project size limit':
-                            return JSONResponse(
-                                content={'message': 'Project size limit exceeded'},
-                                status_code=HTTPStatus.CONTENT_TOO_LARGE
-                            )
+                            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST,
+                                                detail='Project size limit exceeded')
                         else:
-                            return JSONResponse(
-                                content={'message': 'Failed to upload file from 1'},
-                                status_code=HTTPStatus.INTERNAL_SERVER_ERROR
-                            )
+                            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                                                detail='Failed to upload file')
+                    else:
+                        raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                                            detail='Failed to upload file')
                 else:
                     raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                                        detail='Failed to upload file from 2')
+                                        detail='Failed to upload file')
 
             except HTTPException:
                 raise
@@ -242,12 +226,12 @@ def add_documents_to_project(
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File already exists in the project')
 
 
-@router.get('/project/{project_id}/documents')
+@router.get('/{project_id}/documents', status_code=HTTPStatus.OK)
 def get_project_documents(
         project_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> List[DocumentInfo]:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
@@ -261,21 +245,18 @@ def get_project_documents(
         result.append(DocumentInfo(
             id=doc.document_id,
             name=((doc.name.replace("\\", '/')).split('/'))[-1]
-        ).model_dump())
+        ))
 
-    return JSONResponse(
-        content=result,
-        status_code=HTTPStatus.OK
-    )
+    return result
 
 
-@router.post('/project/{project_id}/invite')
+@router.post('/{project_id}/invite', status_code=HTTPStatus.OK)
 def give_access_to_project(
         project_id: int,
         user: str = Query(...),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> BaseStrResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
@@ -289,10 +270,7 @@ def give_access_to_project(
         if get_is_participant(db, project_id, user):
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='User already has access to the project')
         if create_participation(db, project_id, user):
-            return JSONResponse(
-                content={'message': f'Access to user_id={user} has been granted'},
-                status_code=HTTPStatus.OK
-            )
+            return BaseStrResponse(message='Access granted successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to grant access')
     else:

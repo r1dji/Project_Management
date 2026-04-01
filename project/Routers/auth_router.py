@@ -4,14 +4,14 @@ from zoneinfo import ZoneInfo
 
 import jwt
 from fastapi import APIRouter, HTTPException, Depends
-from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pwdlib import PasswordHash
 from sqlalchemy.orm import Session
 
 from Database.db import get_db
 from Database.models import User
-from Schemas.auth_schemas import SignUpRequest, LoginRequest
+from Schemas.auth_schemas import SignUpRequest, LoginRequest, LoginResponse
+from Schemas.projects_schemas import BaseStrResponse
 from Services.users_service import get_user_by_username, insert_user
 from config import settings
 
@@ -62,8 +62,8 @@ def get_current_user(
     return user
 
 
-@router.post('/auth')
-def sign_up(data: SignUpRequest, db: Session = Depends(get_db)):
+@router.post('/auth', status_code=HTTPStatus.CREATED)
+def sign_up(data: SignUpRequest, db: Session = Depends(get_db)) -> BaseStrResponse:
     if data.password != data.repeated_password:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Passwords do not match')
 
@@ -74,16 +74,13 @@ def sign_up(data: SignUpRequest, db: Session = Depends(get_db)):
     hashed_password = password_hasher.hash(data.password)
 
     if insert_user(db, data.username, hashed_password):
-        return JSONResponse(
-            content={'message': 'User created successfully'},
-            status_code=HTTPStatus.CREATED
-        )
+        return BaseStrResponse(message='User created successfully')
     else:
         raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create user')
 
 
-@router.post('/login')
-def login(data: LoginRequest, db: Session = Depends(get_db)):
+@router.post('/login', status_code=HTTPStatus.OK)
+def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
     username = data.username
     password = data.password
 
@@ -102,10 +99,4 @@ def login(data: LoginRequest, db: Session = Depends(get_db)):
 
     access_token = create_access_token(user)
 
-    return JSONResponse(
-        content={
-            'message': 'Login successful',
-            'access_token': access_token
-        },
-        status_code=HTTPStatus.OK
-    )
+    return LoginResponse(message="Login successfully", access_token=access_token)

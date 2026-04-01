@@ -8,7 +8,7 @@ class ProjectCreate(BaseModel):
     details: str
 
 
-class ProjectDetailsRead(BaseModel):
+class ProjectDetailsResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     name: str
@@ -22,3 +22,9 @@ class ProjectRead(BaseModel):
     name: str
     details: str
     documents: List[str]
+
+
+class BaseStrResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    message: str

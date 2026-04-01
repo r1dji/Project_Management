@@ -1,7 +1,7 @@
 from http import HTTPStatus
+from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
-from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from Database.db import get_db
@@ -19,29 +19,35 @@ from Services.projects_service import (
 router = APIRouter(tags=['Projects'])
 
 
-@router.post('/projects')
+@router.post('/projects', status_code=HTTPStatus.CREATED)
 def add_project(
         data: ProjectCreate,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> ProjectRead:
     if not data.name or not data.details:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Name and details are required')
 
-    if create_project(db, data.name, data.details, current_user):
-        return JSONResponse(
-            content={'message': 'Project created successfully'},
-            status_code=201
+    if data.name.count('+') > 0:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Project name cannot contain +')
+
+    project = create_project(db, data.name, data.details, current_user)
+    if project:
+        return ProjectRead(
+            project_id=project.project_id,
+            name=project.name,
+            details=project.details,
+            documents=project.documents
         )
     else:
         raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create project')
 
 
-@router.get('/projects')
+@router.get('/projects', status_code=HTTPStatus.OK)
 def get_projects(
         db: Session = Depends(get_db),
-        current_user: User = Depends(get_current_user)
-):
+        current_user: User = Depends(get_current_user),
+) -> List[ProjectRead]:
     result = []
     participated_projects = get_all_participated_projects_for_user_id(db, current_user.user_id)
     for proj in participated_projects:
@@ -54,7 +60,4 @@ def get_projects(
             documents=documents
         ))
 
-    return JSONResponse(
-        content=[item.model_dump() for item in result],
-        status_code=HTTPStatus.OK
-    )
+    return result

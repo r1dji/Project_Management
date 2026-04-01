@@ -4,12 +4,13 @@ from http import HTTPStatus
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, File, UploadFile
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from Database.db import get_db
 from Database.models import User
 from Routers.auth_router import get_current_user
+from Schemas.projects_schemas import BaseStrResponse
 from Services.documents_service import (
     get_document_by_id,
     delete_document,
@@ -30,10 +31,10 @@ SQS_QUEUE_URL = settings.AWS_SQS_QUEUE_URL
 s3_client = boto3.client('s3', region_name=os.getenv('AWS_REGION'))
 sqs_client = boto3.client('sqs', region_name=os.getenv('AWS_REGION'))
 
-router = APIRouter(tags=['Documents'])
+router = APIRouter(tags=['Documents'], prefix='/document')
 
 
-@router.get('/document/{document_id}')
+@router.get('/{document_id}')
 def download_document(
         document_id: int,
         db: Session = Depends(get_db),
@@ -73,13 +74,13 @@ def download_document(
                             detail=f'Failed to download document: {str(e)}')
 
 
-@router.put('/document/{document_id}')
+@router.put('/{document_id}')
 def update_document(
         document_id: int,
         db: Session = Depends(get_db),
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user)
-):
+) -> BaseStrResponse:
     document = get_document_by_id(db, document_id)
     if not document:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')
@@ -132,25 +133,20 @@ def update_document(
                 if lambda_result['status'] == 'success':
                     os.remove(document.name)
                     if update_document_name(db, document_id, file_path):
-                        return JSONResponse(
-                            content={'message': 'File updated successfully'},
-                            status_code=HTTPStatus.OK
-                        )
+                        return BaseStrResponse(message='File updated successfully')
                     else:
                         raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Document not updated')
                 elif lambda_result['status'] == 'error':
                     os.remove(file_path)
                     s3_client.upload_file(document.name, AWS_BUCKET_NAME, s3_file_name)
                     if lambda_result['error'] == 'Exceeded project size limit':
-                        return JSONResponse(
-                            content={'message': 'Project size limit exceeded'},
-                            status_code=HTTPStatus.CONTENT_TOO_LARGE
-                        )
+                        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Project size limit exceeded')
                     else:
-                        return JSONResponse(
-                            content={'message': 'Failed to update file'},
-                            status_code=HTTPStatus.INTERNAL_SERVER_ERROR
-                        )
+                        raise HTTPException(
+                            status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to update file')
+                else:
+                    raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                                        detail='Invalid response from Lambda')
             else:
                 os.remove(file_path)
                 s3_client.upload_file(document.name, AWS_BUCKET_NAME, s3_file_name)
@@ -195,24 +191,19 @@ def update_document(
                     os.remove(document.name)
                     os.rename(file_path, document.name)
 
-                    return JSONResponse(
-                        content={'message': 'File updated successfully'},
-                        status_code=HTTPStatus.OK
-                    )
+                    return BaseStrResponse(message='File updated successfully')
 
                 elif lambda_result['status'] == 'error':
                     os.remove(file_path)
                     s3_client.upload_file(document.name, AWS_BUCKET_NAME, s3_file_name)
                     if lambda_result['error'] == 'Exceeded project size limit':
-                        return JSONResponse(
-                            content={'message': 'Project size limit exceeded'},
-                            status_code=HTTPStatus.CONTENT_TOO_LARGE
-                        )
+                        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Project size limit exceeded')
                     else:
-                        return JSONResponse(
-                            content={'message': 'Failed to update file'},
-                            status_code=HTTPStatus.INTERNAL_SERVER_ERROR
-                        )
+                        raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                                            detail='Failed to update file')
+                else:
+                    raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
+                                        detail='Invalid response from Lambda')
             else:
                 os.remove(file_path)
                 s3_client.upload_file(document.name, AWS_BUCKET_NAME, s3_file_name)
@@ -229,12 +220,12 @@ def update_document(
             )
 
 
-@router.delete('/document/{document_id}')
+@router.delete('/{document_id}')
 def remove_document(
         document_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> BaseStrResponse:
     document = get_document_by_id(db, document_id)
     if not document:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')
@@ -248,6 +239,6 @@ def remove_document(
         s3_file_name_list = ((document.name.replace("\\", '/')).split('/'))[-2:]
         s3_client.delete_object(Bucket=settings.AWS_BUCKET_NAME, Key='/'.join(s3_file_name_list))
 
-        return JSONResponse(status_code=HTTPStatus.OK, content={'message': 'Document deleted successfully'})
+        return BaseStrResponse(message='Document deleted successfully')
     else:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')
