@@ -7,3 +7,7 @@ __pycache__/
 *.pyd
 db_script.sql
 notes.txt
+cloud_utils/cloud_setup_script.py
+cloud_utils/package
+uploaded_files
+project/example_docs

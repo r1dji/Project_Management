@@ -11,7 +11,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
       - run: pip install ruff
-      - run: ruff check --fix .
+      - run: ruff check .
 
   tests:
     needs: lint
@@ -41,6 +41,6 @@ jobs:
           AWS_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
         run: |
           cd project
-          pytest Tests/
+          pytest -v Tests/
           
 

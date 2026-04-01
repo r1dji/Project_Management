@@ -3,6 +3,7 @@ import os
 import json
 from PIL import Image
 import io
+import urllib.parse
 
 s3_client = boto3.client('s3')
 sqs_client = boto3.client('sqs')
@@ -13,7 +14,7 @@ MAX_PROJECT_SIZE = 5 * 1024 * 1024
 def lambda_s3_event_handler(event, context):
 
     bucket = event['Records'][0]['s3']['bucket']['name']
-    key = event['Records'][0]['s3']['object']['key']
+    key = urllib.parse.unquote_plus(event['Records'][0]['s3']['object']['key'])
 
     print(f"Event received for: s3://{bucket}/{key}")
 
