@@ -1,2 +1,16 @@
 .venv
 .idea
+
+*/__pycache__/
+*.pyc
+
+cloud_utils/package
+cloud_utils/cloud_setup_script.py
+
+db_script.sql
+notes.txt
+
+project/.env
+
+
+project/example_docs
