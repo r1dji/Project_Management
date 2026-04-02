@@ -20,11 +20,11 @@ def create_project(db, name, details, current_user):
         )
         db.add(new_participation)
         db.commit()
-        return True
+        return new_project
     except Exception as e:
         db.rollback()
         print(e)
-        return False
+        return None
 
 
 def get_all_participated_projects_for_user_id(db, user_id):

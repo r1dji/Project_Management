@@ -22,5 +22,10 @@ class Settings(BaseSettings):
     JWT_ALGORITHM: str
     JWT_TOKEN_DURATION_MINUTES: int
 
+    AWS_BUCKET_NAME: str
+    ROLE_NAME: str
+    AWS_SQS_QUEUE_NAME: str
+    AWS_SQS_QUEUE_URL: str
+
 
 settings = Settings()

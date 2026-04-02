@@ -10,3 +10,8 @@ class SignUpRequest(BaseModel):
 class LoginRequest(BaseModel):
     username: str
     password: str
+
+
+class LoginResponse(BaseModel):
+    message: str
+    access_token: str
