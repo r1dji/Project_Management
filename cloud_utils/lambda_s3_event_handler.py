@@ -27,6 +27,8 @@ def lambda_s3_event_handler(event, context):
 
             if not tag_dict.get('processed') == 'true':
                 handle_picture_resize(bucket, key)
+            else:
+                handle_project_size_calc(bucket, key)
         except Exception as e:
             print(f"Error checking tags: {str(e)}")
 
@@ -52,21 +54,14 @@ def handle_picture_resize(bucket, key):
 
         resized_bytes.seek(0)
 
-        s3_client.put_object(Bucket=bucket, Key=key, Body=resized_bytes.getvalue())
-
-        s3_client.put_object_tagging(
+        s3_client.put_object(
             Bucket=bucket,
             Key=key,
-            Tagging={
-                'TagSet': [
-                    {'Key': 'processed', 'Value': 'true'},
-                ]
-            }
+            Body=resized_bytes.getvalue(),
+            Tagging='processed=true'
         )
 
         print(f"Image resized to 500x500 and tagged: {key}")
-
-        handle_project_size_calc(bucket, key)
 
     except Exception as e:
         message = {

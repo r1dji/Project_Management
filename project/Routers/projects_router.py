@@ -28,7 +28,7 @@ def add_project(
     if not data.name or not data.details:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Name and details are required')
 
-    if data.name.count('+') > 0:
+    if '+' in data.name:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Project name cannot contain +')
 
     project = create_project(db, data.name, data.details, current_user)

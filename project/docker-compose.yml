@@ -12,7 +12,7 @@ services:
     volumes:
       - db_data:/var/lib/postgresql
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d project_management"]
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d project_management" ]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -39,4 +39,3 @@ volumes:
   db_data:
   app_data:
 
-# docker-compose run app python cloud_utils/cloud_setup_script.py when needed

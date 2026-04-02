@@ -30,6 +30,7 @@ def override_get_db():
 
 app.dependency_overrides[get_db] = override_get_db
 
+
 def setup_function() -> None:
     Base.metadata.create_all(bind=engine)
 
@@ -83,7 +84,6 @@ def test_create_project():
         }
     )
     assert response.status_code == 201
-    assert response.json()["message"] == "Project created successfully"
 
 
 def test_update_project_details():

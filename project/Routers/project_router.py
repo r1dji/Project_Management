@@ -1,7 +1,5 @@
 import os
-import shutil
 from http import HTTPStatus
-import json
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.orm import Session
@@ -15,8 +13,6 @@ from Services.documents_service import (
     get_documents_for_project_by_name,
     create_document_for_project,
     get_all_documents_for_project,
-    update_document_name,
-    delete_document
 )
 from Services.projects_service import (
     get_proj_by_id,
@@ -25,6 +21,8 @@ from Services.projects_service import (
     delete_project,
     create_participation
 )
+
+from s3_lambda_handle.s3_file_upload_handle import s3_file_upload_handle
 
 from typing import List
 
@@ -47,6 +45,7 @@ def get_project_details(
         current_user: User = Depends(get_current_user),
 ) -> ProjectDetailsResponse:
     proj = get_proj_by_id(db, project_id)
+
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
 
@@ -69,49 +68,22 @@ def change_project_details(
     if data.name is None or data.details is None:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Name and details are required')
 
+    if '+' in data.name:
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Project name cannot contain +')
+
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
 
-    if proj.owner_id == current_user.user_id or get_is_participant(db, project_id, current_user.user_id):
-        old_proj_file_name = f'id_{proj.project_id}_name_{proj.name}'
-        docs_folder = os.path.join(os.getcwd(), 'uploaded_files')
-        old_proj_upload_files = os.path.join(docs_folder, old_proj_file_name)
-        updated_proj = update_project_details(db, proj.project_id, data.name, data.details)
-        if updated_proj is not None:
-            new_proj_file_name = f'id_{updated_proj.project_id}_name_{updated_proj.name}'
-            if os.path.exists(old_proj_upload_files):
-                new_file_upload_name = os.path.join(docs_folder, new_proj_file_name)
-                os.rename(old_proj_upload_files, new_file_upload_name)
-                documents = get_all_documents_for_project(db, updated_proj.project_id)
-                for doc in documents:
-                    doc_name = ((doc.name.replace("\\", '/')).split('/'))[-1]
-                    new_doc_name = os.path.join(new_file_upload_name, doc_name)
-                    if update_document_name(db, doc.document_id, new_doc_name):
+    if not get_is_participant(db, project_id, current_user.user_id):
+        raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
 
-                        # S3 update file names
-                        old_folder_prefix = f'{old_proj_file_name}/{doc_name}'
-                        response = s3_client.list_objects_v2(Bucket=AWS_BUCKET_NAME, Prefix=old_folder_prefix)
-                        new_folder_prefix = f'{new_proj_file_name}/{doc_name}'
-                        if 'Contents' in response:
-                            for obj in response['Contents']:
-                                old_key = obj['Key']
-                                new_key = old_key.replace(old_folder_prefix, new_folder_prefix, 1)
+    updated_proj = update_project_details(db, project_id, data.name, data.details)
 
-                                # Copy file to new name
-                                s3_client.copy_object(
-                                    Bucket=AWS_BUCKET_NAME,
-                                    CopySource={'Bucket': AWS_BUCKET_NAME, 'Key': old_key},
-                                    Key=new_key
-                                )
-                                # Delete old file
-                                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=old_key)
-
-            return ProjectDetailsResponse(name=updated_proj.name, details=updated_proj.details)
-        else:
-            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to update project')
-
-    raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
+    if updated_proj is not None:
+        return ProjectDetailsResponse(name=updated_proj.name, details=updated_proj.details)
+    else:
+        raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to update project')
 
 
 @router.delete('/{project_id}', status_code=HTTPStatus.OK)
@@ -128,11 +100,7 @@ def delete_project_and_docs(
         documents = get_all_documents_for_project(db, project_id)
         if delete_project(db, project_id):
             for doc in documents:
-                os.remove(doc.name)
-                s3_file_name_list = ((doc.name.replace("\\", '/')).split('/'))[-2:]
-                s3_file_name = '/'.join(s3_file_name_list)
-                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_file_name)
-
+                s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=doc.name)
             return BaseStrResponse(message='Project deleted successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to delete project')
@@ -154,76 +122,27 @@ def add_documents_to_project(
     if not get_is_participant(db, project_id, current_user.user_id):
         raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
 
-    if file.filename.count('+') > 0:
+    if file.filename is not None and '+' in file.filename:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File name cannot contain +')
 
-    docs_folder = os.path.join(os.getcwd(), 'uploaded_files')
-    folder_proj_name = f'id_{project_id}_name_{proj.name}'
-    proj_upload_files = os.path.join(docs_folder, folder_proj_name)
+    s3_key = f'project_id_{project_id}/{file.filename}'
 
-    if not os.path.exists(proj_upload_files):
-        os.makedirs(proj_upload_files)
+    if get_documents_for_project_by_name(db, project_id, s3_key):
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File already exists in the project')
 
-    file_path = os.path.join(proj_upload_files, file.filename)
-    file_path_s3 = f'{folder_proj_name}/{file.filename}'
-
-    if not get_documents_for_project_by_name(db, project_id, file_path):
-        if create_document_for_project(db, project_id, file_path):
-            with open(file_path, 'wb') as local_file:
-                shutil.copyfileobj(file.file, local_file)
-            try:
-                s3_client.upload_file(file_path, AWS_BUCKET_NAME, file_path_s3)
-
-                response = sqs_client.receive_message(
-                    QueueUrl=SQS_QUEUE_URL,
-                    MaxNumberOfMessages=1,
-                    WaitTimeSeconds=20
-                )
-
-                if 'Messages' in response:
-                    message = response['Messages'][0]
-                    lambda_result = json.loads(message['Body'])
-
-                    sqs_client.delete_message(
-                        QueueUrl=SQS_QUEUE_URL,
-                        ReceiptHandle=message['ReceiptHandle']
-                    )
-
-                    if lambda_result['status'] == 'success':
-                        return BaseStrResponse(message='File uploaded successfully')
-                    elif lambda_result['status'] == 'error':
-                        os.remove(file_path)
-                        s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=file_path_s3)
-                        document = get_documents_for_project_by_name(db, project_id, file_path)
-                        delete_document(db, document.document_id)
-                        if lambda_result['error'] == 'Exceeded project size limit':
-                            raise HTTPException(status_code=HTTPStatus.BAD_REQUEST,
-                                                detail='Project size limit exceeded')
-                        else:
-                            raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                                                detail='Failed to upload file')
-                    else:
-                        raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                                            detail='Failed to upload file')
-                else:
-                    raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                                        detail='Failed to upload file')
-
-            except HTTPException:
-                raise
-            except Exception as e:
-                os.remove(file_path)
-                document = get_documents_for_project_by_name(db, project_id, file_path)
-                delete_document(db, document.document_id)
-                raise HTTPException(
-                    status_code=HTTPStatus.INTERNAL_SERVER_ERROR,
-                    detail=f'Upload failed: {str(e)}'
-                )
+    try:
+        file.file.seek(0)
+        s3_file_upload_handle(AWS_BUCKET_NAME, s3_key, file.file, SQS_QUEUE_URL)
+        if create_document_for_project(db, project_id, s3_key):
+            return BaseStrResponse(message='File uploaded successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create document')
 
-    else:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File already exists in the project')
+    except HTTPException:
+        raise
+    except Exception as e:
+        s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=s3_key)
+        raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail=f'Failed to upload file: {str(e)}')
 
 
 @router.get('/{project_id}/documents', status_code=HTTPStatus.OK)
@@ -244,7 +163,7 @@ def get_project_documents(
     for doc in documents:
         result.append(DocumentInfo(
             id=doc.document_id,
-            name=((doc.name.replace("\\", '/')).split('/'))[-1]
+            name=doc.name.split('/')[1]
         ))
 
     return result
