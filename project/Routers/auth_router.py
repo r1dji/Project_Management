@@ -35,11 +35,6 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
     username = data.username
     password = data.password
 
-    if not username:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Username is required')
-    elif not password:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Password is required')
-
     user = get_user_by_username(db, username)
 
     if not user:
