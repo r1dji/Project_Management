@@ -1,5 +1,7 @@
+from typing import Generator
+
 from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
 
 from Database.models import Base
 from config import settings
@@ -20,7 +22,7 @@ engine = create_engine(
 session = sessionmaker(bind=engine)
 
 
-def get_db():
+def get_db() -> Generator[Session, None, None]:
     db = session()
     try:
         yield db
@@ -28,5 +30,5 @@ def get_db():
         db.close()
 
 
-def create_tables():
+def create_tables() -> None:
     Base.metadata.create_all(bind=engine)

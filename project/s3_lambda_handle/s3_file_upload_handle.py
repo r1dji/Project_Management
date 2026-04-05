@@ -1,13 +1,14 @@
 import boto3
 
 from http import HTTPStatus
+from typing import BinaryIO
 
 from fastapi import HTTPException
 
 import json
 
 
-def s3_file_upload_handle(bucket, key, file_content, sqs_queue_url):
+def s3_file_upload_handle(bucket: str, key: str, file_content: BinaryIO | bytes, sqs_queue_url: str) -> None:
     s3_client = boto3.client('s3')
     sqs_client = boto3.client('sqs')
 

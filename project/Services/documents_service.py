@@ -1,13 +1,16 @@
-from sqlalchemy import update
+from typing import List, Optional
+
+from sqlalchemy import select, update
+from sqlalchemy.orm import Session
 
 from Database.models import Documents
 
 
-def get_documents_for_project_by_name(db, proj_id, doc_name):
-    return db.query(Documents).filter_by(project_id=proj_id, name=doc_name).first()
+def get_documents_for_project_by_name(db: Session, proj_id: int, doc_name: str) -> Optional[Documents]:
+    return db.scalars(select(Documents).where((Documents.project_id == proj_id) & (Documents.name == doc_name))).first()
 
 
-def create_document_for_project(db, proj_id, doc_name):
+def create_document_for_project(db: Session, proj_id: int, doc_name: str) -> bool:
     new_doc = Documents(
         name=doc_name,
         project_id=proj_id
@@ -22,16 +25,17 @@ def create_document_for_project(db, proj_id, doc_name):
         return False
 
 
-def get_all_documents_for_project(db, proj_id):
-    return db.query(Documents).filter_by(project_id=proj_id).all()
+def get_all_documents_for_project(db: Session, proj_id: int) -> List[Documents]:
+    documents = db.scalars(select(Documents).where(Documents.project_id == proj_id))
+    return list(documents)
 
 
-def get_document_by_id(db, doc_id):
-    return db.query(Documents).filter_by(document_id=doc_id).first()
+def get_document_by_id(db: Session, doc_id: int) -> Optional[Documents]:
+    return db.scalars(select(Documents).where(Documents.document_id == doc_id)).first()
 
 
-def delete_document(db, doc_id):
-    document = db.query(Documents).filter_by(document_id=doc_id).first()
+def delete_document(db: Session, doc_id: int) -> bool:
+    document = db.scalars(select(Documents).where(Documents.document_id == doc_id)).first()
     if not document:
         return False
     try:
@@ -44,7 +48,7 @@ def delete_document(db, doc_id):
         return False
 
 
-def update_document_name(db, document_id, file_path):
+def update_document_name(db: Session, document_id: int, file_path: str) -> bool:
     stmt = update(Documents).where(Documents.document_id == document_id).values(name=file_path)
     try:
         db.execute(stmt)
