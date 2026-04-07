@@ -49,7 +49,7 @@ def test_sign_up():
         }
     )
     assert response.status_code == 201
-    assert response.json()["message"] == "User created successfully"
+    assert response.json()["message"] == "User created successfully promenjeno"
 
 
 def create_test_user(username: str = "testuser", password: str = "123"):
