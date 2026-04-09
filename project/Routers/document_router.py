@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 
 from Database.db import get_db
 from Database.models import User
-from Routers.auth_router import get_current_user
-from Schemas.projects_schemas import BaseStrResponse
+from Services.auth_service import get_current_user
+from Schemas.message_schemas import MessageResponse
 from Services.documents_service import (
     get_document_by_id,
     delete_document,
@@ -38,7 +38,7 @@ def download_document(
         document_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-):
+) -> StreamingResponse:
     document = get_document_by_id(db, document_id)
     if not document:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')
@@ -73,7 +73,7 @@ def update_document(
         db: Session = Depends(get_db),
         file: UploadFile = File(...),
         current_user: User = Depends(get_current_user)
-) -> BaseStrResponse | None:
+) -> MessageResponse | None:
     document = get_document_by_id(db, document_id)
     if not document:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')
@@ -86,8 +86,8 @@ def update_document(
     if file.filename in documents_name:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File already exists in the project')
 
-    if file.filename is not None and '+' in file.filename:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File name cannot contain +')
+    if file.filename is not None and ('+' in file.filename or '/' in file.filename):
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File name cannot contain + or /')
 
     s3_key = f'project_id_{document.project_id}/{file.filename}'
 
@@ -96,7 +96,7 @@ def update_document(
         file.file.seek(0)
         old_file_content = s3_update_file_handle(AWS_BUCKET_NAME, old_s3_key, s3_key, file.file, SQS_QUEUE_URL)
         if update_document_name(db, document_id, s3_key):
-            return BaseStrResponse(message='File updated successfully')
+            return MessageResponse(message='File updated successfully')
         else:
             s3_update_file_handle(AWS_BUCKET_NAME, s3_key, old_s3_key, old_file_content, SQS_QUEUE_URL)
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to update document')
@@ -112,7 +112,7 @@ def remove_document(
         document_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-) -> BaseStrResponse:
+) -> MessageResponse:
     document = get_document_by_id(db, document_id)
     if not document:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')
@@ -124,6 +124,6 @@ def remove_document(
         s3_key = document.name
         s3_client.delete_object(Bucket=settings.AWS_BUCKET_NAME, Key=s3_key)
 
-        return BaseStrResponse(message='Document deleted successfully')
+        return MessageResponse(message='Document deleted successfully')
     else:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Document not found')

@@ -1,15 +1,15 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class SignUpRequest(BaseModel):
-    username: str
-    password: str
-    repeated_password: str
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+    repeated_password: str = Field(min_length=1)
 
 
 class LoginRequest(BaseModel):
-    username: str
-    password: str
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
 
 
 class LoginResponse(BaseModel):

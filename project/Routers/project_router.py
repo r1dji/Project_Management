@@ -6,14 +6,15 @@ from sqlalchemy.orm import Session
 
 from Database.db import get_db
 from Database.models import User
-from Routers.auth_router import get_current_user
+from Services.auth_service import get_current_user
 from Schemas.documents_schemas import DocumentInfo
-from Schemas.projects_schemas import ProjectCreate, ProjectDetailsResponse, BaseStrResponse
+from Schemas.projects_schemas import ProjectCreate, ProjectDetailsResponse
 from Services.documents_service import (
     get_documents_for_project_by_name,
     create_document_for_project,
     get_all_documents_for_project,
 )
+from Schemas.message_schemas import MessageResponse
 from Services.projects_service import (
     get_proj_by_id,
     get_is_participant,
@@ -68,9 +69,6 @@ def change_project_details(
     if data.name is None or data.details is None:
         raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Name and details are required')
 
-    if '+' in data.name:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='Project name cannot contain +')
-
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
@@ -91,7 +89,7 @@ def delete_project_and_docs(
         project_id: int,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-) -> BaseStrResponse:
+) -> MessageResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
@@ -101,7 +99,7 @@ def delete_project_and_docs(
         if delete_project(db, project_id):
             for doc in documents:
                 s3_client.delete_object(Bucket=AWS_BUCKET_NAME, Key=doc.name)
-            return BaseStrResponse(message='Project deleted successfully')
+            return MessageResponse(message='Project deleted successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to delete project')
     else:
@@ -114,7 +112,7 @@ def add_documents_to_project(
         file: UploadFile = File(...),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-) -> BaseStrResponse:
+) -> MessageResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
@@ -122,8 +120,8 @@ def add_documents_to_project(
     if not get_is_participant(db, project_id, current_user.user_id):
         raise HTTPException(status_code=HTTPStatus.FORBIDDEN, detail='Not authorized on this project')
 
-    if file.filename is not None and '+' in file.filename:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File name cannot contain +')
+    if file.filename is not None and ('+' in file.filename or '/' in file.filename):
+        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='File name cannot contain + or /')
 
     s3_key = f'project_id_{project_id}/{file.filename}'
 
@@ -134,7 +132,7 @@ def add_documents_to_project(
         file.file.seek(0)
         s3_file_upload_handle(AWS_BUCKET_NAME, s3_key, file.file, SQS_QUEUE_URL)
         if create_document_for_project(db, project_id, s3_key):
-            return BaseStrResponse(message='File uploaded successfully')
+            return MessageResponse(message='File uploaded successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create document')
 
@@ -172,24 +170,19 @@ def get_project_documents(
 @router.post('/{project_id}/invite', status_code=HTTPStatus.OK)
 def give_access_to_project(
         project_id: int,
-        user: str = Query(...),
+        user: int = Query(...),
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
-) -> BaseStrResponse:
+) -> MessageResponse:
     proj = get_proj_by_id(db, project_id)
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
-
-    try:
-        user = int(user)
-    except ValueError:
-        raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='User id must be a number')
 
     if proj.owner_id == current_user.user_id:
         if get_is_participant(db, project_id, user):
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='User already has access to the project')
         if create_participation(db, project_id, user):
-            return BaseStrResponse(message='Access granted successfully')
+            return MessageResponse(message='Access granted successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to grant access')
     else:
