@@ -45,4 +45,4 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
 
     access_token = create_access_token(user)
 
-    return LoginResponse(message="Login successfully dummy test", access_token=access_token)
+    return LoginResponse(message="Login successfully", access_token=access_token)
