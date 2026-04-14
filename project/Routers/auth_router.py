@@ -25,7 +25,7 @@ def sign_up(data: SignUpRequest, db: Session = Depends(get_db)) -> MessageRespon
     hashed_password = password_hasher.hash(data.password)
 
     if insert_user(db, data.username, hashed_password):
-        return MessageResponse(message='User created successfully dummy test')
+        return MessageResponse(message='User created successfully')
     else:
         raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to create user')
 
@@ -45,4 +45,4 @@ def login(data: LoginRequest, db: Session = Depends(get_db)) -> LoginResponse:
 
     access_token = create_access_token(user)
 
-    return LoginResponse(message="Login successfully", access_token=access_token)
+    return LoginResponse(message="Login successfully dummy test", access_token=access_token)
