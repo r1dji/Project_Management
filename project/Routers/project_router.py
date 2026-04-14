@@ -22,6 +22,7 @@ from Services.projects_service import (
     delete_project,
     create_participation
 )
+from Services.users_service import get_user_by_username
 
 from s3_lambda_handle.s3_file_upload_handle import s3_file_upload_handle
 
@@ -170,7 +171,7 @@ def get_project_documents(
 @router.post('/{project_id}/invite', status_code=HTTPStatus.OK)
 def give_access_to_project(
         project_id: int,
-        user: int = Query(...),
+        user: str,
         db: Session = Depends(get_db),
         current_user: User = Depends(get_current_user)
 ) -> MessageResponse:
@@ -178,10 +179,14 @@ def give_access_to_project(
     if not proj:
         raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='Project not found')
 
+    user_obj = get_user_by_username(db, user)
+    if not user_obj:
+        raise HTTPException(status_code=HTTPStatus.NOT_FOUND, detail='User not found')
+
     if proj.owner_id == current_user.user_id:
-        if get_is_participant(db, project_id, user):
+        if get_is_participant(db, project_id, user_obj.user_id):
             raise HTTPException(status_code=HTTPStatus.BAD_REQUEST, detail='User already has access to the project')
-        if create_participation(db, project_id, user):
+        if create_participation(db, project_id, user_obj.user_id):
             return MessageResponse(message='Access granted successfully')
         else:
             raise HTTPException(status_code=HTTPStatus.INTERNAL_SERVER_ERROR, detail='Failed to grant access')
