@@ -1,3 +1,3 @@
-[tool.ruff]
-lint.ignore = ["E402"]
+[tool.ruff.lint]
+ignore = ["E402"]
 select = ["ANN"]

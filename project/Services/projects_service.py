@@ -1,9 +1,12 @@
-from sqlalchemy import update
+from typing import List, Optional
 
-from Database.models import Project, ProjectParticipant
+from sqlalchemy import update, select
+from sqlalchemy.orm import Session
+
+from Database.models import Project, ProjectParticipant, User
 
 
-def create_project(db, name, details, current_user):
+def create_project(db: Session, name: str, details: str, current_user: User) -> Optional[Project]:
     new_project = Project(
         name=name,
         details=details,
@@ -13,10 +16,9 @@ def create_project(db, name, details, current_user):
     try:
         db.add(new_project)
         db.commit()
-        added_proj = db.query(Project).filter(Project.project_id == new_project.project_id).first()
         new_participation = ProjectParticipant(
             user_id=current_user.user_id,
-            project_id=added_proj.project_id
+            project_id=new_project.project_id
         )
         db.add(new_participation)
         db.commit()
@@ -27,39 +29,39 @@ def create_project(db, name, details, current_user):
         return None
 
 
-def get_all_participated_projects_for_user_id(db, user_id):
-    participated_projects = (
-        db.query(Project)
+def get_all_participated_projects_for_user_id(db: Session, user_id: int) -> List[Project]:
+    stmt = (
+        select(Project)
         .join(ProjectParticipant, ProjectParticipant.project_id == Project.project_id)
-        .filter(ProjectParticipant.user_id == user_id)
-        .all()
+        .where(ProjectParticipant.user_id == user_id)
     )
-    return participated_projects
+    return list(db.scalars(stmt))
 
 
-def get_proj_by_id(db, proj_id):
-    return db.query(Project).filter(Project.project_id == proj_id).first()
+def get_proj_by_id(db: Session, proj_id: int) -> Optional[Project]:
+    return db.scalars(select(Project).where(Project.project_id == proj_id)).first()
 
 
-def get_is_participant(db, proj_id, user_id):
-    return db.query(ProjectParticipant).filter_by(user_id=user_id, project_id=proj_id).first() is not None
+def get_is_participant(db: Session, proj_id: int, user_id: int) -> bool:
+    return db.scalars(select(ProjectParticipant).where(
+        (ProjectParticipant.user_id == user_id) & (ProjectParticipant.project_id == proj_id))).first() is not None
 
 
-def update_project_details(db, proj_id, name, details):
+def update_project_details(db: Session, proj_id: int, name: str, details: str) -> Optional[Project]:
     stmt = update(Project).where(Project.project_id == proj_id).values(name=name, details=details)
     try:
         db.execute(stmt)
         db.commit()
-        updated_project = db.query(Project).filter(Project.project_id == proj_id).first()
+        updated_project = db.scalars(select(Project).where(Project.project_id == proj_id)).first()
         return updated_project
     except Exception as e:
         db.rollback()
         print(e)
-        return False
+        return None
 
 
-def delete_project(db, proj_id):
-    project = db.query(Project).filter(Project.project_id == proj_id).first()
+def delete_project(db: Session, proj_id: int) -> bool:
+    project = db.scalars(select(Project).where(Project.project_id == proj_id)).first()
     if not project:
         return False
     try:
@@ -72,7 +74,7 @@ def delete_project(db, proj_id):
         return False
 
 
-def create_participation(db, proj_id, user_id):
+def create_participation(db: Session, proj_id: int, user_id: int) -> bool:
     new_participation = ProjectParticipant(
         user_id=user_id,
         project_id=proj_id

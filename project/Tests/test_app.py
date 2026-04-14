@@ -1,7 +1,8 @@
 from fastapi.testclient import TestClient
 
 from sqlalchemy import create_engine, StaticPool
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, Session
+from typing import Generator
 
 from server import app
 
@@ -22,7 +23,7 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
-def override_get_db():
+def override_get_db() -> Generator[Session, None, None]:
     database = TestingSessionLocal()
     yield database
     database.close()
@@ -39,7 +40,7 @@ def teardown_function() -> None:
     Base.metadata.drop_all(bind=engine)
 
 
-def test_sign_up():
+def test_sign_up() -> None:
     response = client.post(
         "/auth",
         json={
@@ -52,7 +53,7 @@ def test_sign_up():
     assert response.json()["message"] == "User created successfully"
 
 
-def create_test_user(username: str = "testuser", password: str = "123"):
+def create_test_user(username: str = "testuser", password: str = "123") -> str:
     client.post(
         "/auth",
         json={
@@ -73,7 +74,7 @@ def create_test_user(username: str = "testuser", password: str = "123"):
     return access_token
 
 
-def test_create_project():
+def test_create_project() -> None:
     access_token = create_test_user()
     response = client.post(
         "/projects",
@@ -86,7 +87,7 @@ def test_create_project():
     assert response.status_code == 201
 
 
-def test_update_project_details():
+def test_update_project_details() -> None:
     access_token = create_test_user()
     response = client.post(
         "/projects",
@@ -113,7 +114,7 @@ def test_update_project_details():
     assert response.json()["name"] == "Test Updated Project"
 
 
-def test_delete_project():
+def test_delete_project() -> None:
     access_token = create_test_user()
     response = client.post(
         "/projects",

@@ -1,10 +1,12 @@
 from typing import List
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
+
+from Schemas.documents_schemas import DocumentInfo
 
 
 class ProjectCreate(BaseModel):
-    name: str
+    name: str = Field(min_length=1)
     details: str
 
 
@@ -21,10 +23,4 @@ class ProjectRead(BaseModel):
     project_id: int
     name: str
     details: str
-    documents: List[str]
-
-
-class BaseStrResponse(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    message: str
+    documents: List[DocumentInfo]
